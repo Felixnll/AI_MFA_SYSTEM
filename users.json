@@ -1,0 +1,27 @@
+{
+  "felix": {
+    "password": "felix123",
+    "email": "felixnoell123@gmail.com",
+    "known_device": "laptop1"
+  },
+  "kelland": {
+    "password": "kelland123",
+    "email": "kelland@example.com",
+    "known_device": "laptop2"
+  },
+  "erra": {
+    "password": "erra123",
+    "email": "erra@example.com",
+    "known_device": "laptop3"
+  },
+  "joanne": {
+    "password": "joanne123",
+    "email": "joanne@example.com",
+    "known_device": "laptop4"
+  },
+  "awang": {
+    "password": "awang123",
+    "email": "awang@example.com",
+    "known_device": "laptop5"
+  }
+}

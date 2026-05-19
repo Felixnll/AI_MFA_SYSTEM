@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OTP Verification</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Times New Roman';
+            background: white;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .otp-container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 420px;
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 14px;
+            font-size: 28px;
+        }
+
+        p {
+            color: #555;
+            margin-bottom: 24px;
+            line-height: 1.5;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        input {
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 5px;
+            font-size: 16px;
+            text-align: center;
+            letter-spacing: 2px;
+        }
+
+        button {
+            padding: 12px 15px;
+            background: rgb(10, 1, 1);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="otp-container">
+    <h1>OTP Verification</h1>
+    <p>Hello {{ username }}, enter the 6-digit OTP sent by the system.</p>
+    {% if delivery_message %}
+    <p style="font-size: 14px; color: #444; margin-top: -8px; margin-bottom: 20px;">{{ delivery_message }}</p>
+    {% endif %}
+
+    <form method="post">
+        <input type="text" name="otp" placeholder="Enter 6-digit OTP" minlength="6" maxlength="6" required>
+        <button type="submit">Verify OTP</button>
+    </form>
+</div>
+
+{% if error_message %}
+<script>
+    alert("{{ error_message }}");
+</script>
+{% endif %}
+
+</body>
+</html>
