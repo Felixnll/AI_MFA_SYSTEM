@@ -5,7 +5,7 @@ How to use the system:
 make sure you have python 3.14 installed
 
 
-I already include our details in file:users.json. Feel free to update it, especailly the email (use real email, preferable google)
+I already include our details in ** users.json** file. Feel free to update it, especailly the email (use real email, preferable google)
 
 -----------------------------------------------------------------------------------------------------------------------------------
 **To set up SMTP ( OTP send to email)**
@@ -30,11 +30,17 @@ run this in Powershell in VSC
   
   $env:SMTP_SENDER="email@example.com"
 
-
-
-  **To start the app,type in Poswershell:**
   python app.py
+  
+Example:
+$env:SMTP_HOST="smtp.gmail.com"
+$env:SMTP_PORT="465"
+$env:SMTP_USER="felixnoell123@gmail.com"
+$env:SMTP_PASSWORD="lqslpyodxpxrkwum"
+$env:SMTP_SENDER="felixnoell123@gmail.com"
+python app.py
 
-  Click on the link http://127.0.0.1:5000, it will launch browser.
+
+Click on the link http://127.0.0.1:5000, it will launch browser.
 
 
