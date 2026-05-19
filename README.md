@@ -18,7 +18,7 @@ For the SMTP_PASSWORD, do not use your google password, you will need to create 
 
 NEXT STEP:
 
-run this in Powershell in VSC
+run this in Powershell in VSC:
 
   $env:SMTP_HOST="smtp.gmail.com"
   
@@ -31,7 +31,7 @@ run this in Powershell in VSC
   $env:SMTP_SENDER="email@example.com"
 
   python app.py
-  
+---------------------------------------------------------------------------------------------------------------------------------------
 Example:
 $env:SMTP_HOST="smtp.gmail.com"
 
