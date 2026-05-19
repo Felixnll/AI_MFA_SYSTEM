@@ -21,9 +21,13 @@ NEXT STEP:
 run this in Powershell in VSC
 
   $env:SMTP_HOST="smtp.gmail.com"
+  
   $env:SMTP_PORT="465" 
+  
   $env:SMTP_USER="email@example.com"
+  
   $env:SMTP_PASSWORD="<GOOGLE_APP_PASSWORD>"
+  
   $env:SMTP_SENDER="email@example.com"
 
   To start the app,type in Poswershell:
