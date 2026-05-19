@@ -34,10 +34,15 @@ run this in Powershell in VSC
   
 Example:
 $env:SMTP_HOST="smtp.gmail.com"
+
 $env:SMTP_PORT="465"
+
 $env:SMTP_USER="felixnoell123@gmail.com"
+
 $env:SMTP_PASSWORD="lqslpyodxpxrkwum"
+
 $env:SMTP_SENDER="felixnoell123@gmail.com"
+
 python app.py
 
 
