@@ -30,7 +30,9 @@ run this in Powershell in VSC
   
   $env:SMTP_SENDER="email@example.com"
 
-  To start the app,type in Poswershell:
+
+
+  **To start the app,type in Poswershell:**
   python app.py
 
   Click on the link http://127.0.0.1:5000, it will launch browser.
