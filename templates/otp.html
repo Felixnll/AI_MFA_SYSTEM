@@ -40,6 +40,37 @@
             line-height: 1.5;
         }
 
+        .risk-note {
+            margin-top: -12px;
+            margin-bottom: 18px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .warning-note {
+            margin-top: -12px;
+            margin-bottom: 18px;
+            font-size: 14px;
+            color: #9a6700;
+            background: #fff4db;
+            padding: 10px 12px;
+            border-radius: 8px;
+        }
+
+        .risk-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
+            color: #fff;
+            font-weight: 700;
+            font-size: 13px;
+            vertical-align: middle;
+            margin-left: 8px;
+        }
+        .risk-low { background: #2d9c2f; }
+        .risk-medium { background: #f0a500; }
+        .risk-high { background: #d64545; }
+
         form {
             display: flex;
             flex-direction: column;
@@ -53,6 +84,11 @@
             font-size: 16px;
             text-align: center;
             letter-spacing: 2px;
+        }
+
+        input:disabled, button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
 
         button {
@@ -72,8 +108,14 @@
 <div class="otp-container">
     <h1>OTP Verification</h1>
     <p>Hello {{ username }}, enter the 6-digit OTP sent by the system.</p>
+    <p class="risk-note">Risk level during login:
+        <span class="risk-badge risk-{{ risk_level|lower }}">{{ risk_level|capitalize }}</span>
+    </p>
+    {# Removed medium-risk warning_message; countdown and delivery message are used instead. #}
     {% if delivery_message %}
-    <p style="font-size: 14px; color: #444; margin-top: -8px; margin-bottom: 20px;">{{ delivery_message }}</p>
+    <p id="delivery-message" style="font-size: 14px; color: #444; margin-top: -8px; margin-bottom: 20px;">{{ delivery_message }}</p>
+    {% else %}
+    <p id="delivery-message" style="font-size: 14px; color: #444; margin-top: -8px; margin-bottom: 20px;"></p>
     {% endif %}
 
     <form method="post">
@@ -81,6 +123,67 @@
         <button type="submit">Verify OTP</button>
     </form>
 </div>
+
+{% if delay_until and delay_until|float > 0 %}
+<script id="delay-data" type="application/json">{{ delay_until|tojson }}</script>
+<script>
+    // Client-side countdown until OTP entry is allowed
+    (function(){
+        const dataEl = document.getElementById('delay-data');
+        if (!dataEl) return;
+        const delayUntil = Number(dataEl.textContent) || 0;
+        const input = document.querySelector('input[name="otp"]');
+        const btn = document.querySelector('button[type="submit"]');
+
+        if (!input || !btn) return;
+
+        input.disabled = true;
+        btn.disabled = true;
+
+        const delayBox = document.createElement('p');
+        delayBox.id = 'delay-warning';
+        delayBox.className = 'warning-note';
+        const container = document.querySelector('.otp-container');
+        container.insertBefore(delayBox, container.querySelector('form'));
+
+        let timer = null;
+
+        function update() {
+            const now = Date.now() / 1000;
+            const remaining = Math.max(0, Math.ceil(delayUntil - now));
+            delayBox.textContent = 'Please wait ' + remaining + ' second' + (remaining !== 1 ? 's' : '') + ' before entering the OTP.';
+
+            if (remaining <= 0) {
+                input.disabled = false;
+                btn.disabled = false;
+                delayBox.textContent = 'You may now enter the OTP.';
+                setTimeout(function(){ try{ delayBox.remove(); }catch(e){} }, 2500);
+                if (timer) clearInterval(timer);
+
+                // Inform server to send the deferred OTP (retry a few times if server clock disagrees)
+                (function sendDeferred(attemptsLeft){
+                    fetch('/send_deferred_otp', { method: 'POST', credentials: 'same-origin' })
+                        .then(resp => resp.json().catch(()=>({ success: false, message: 'Invalid JSON response' })))
+                        .then(data => {
+                            const dm = document.getElementById('delivery-message');
+                            if (dm) dm.textContent = data.message || '';
+                            // If server says delay not yet expired, retry shortly (protect with attempt limit)
+                            if (!data.success && attemptsLeft > 0 && /delay not yet expired/i.test((data.message||'').toLowerCase())){
+                                setTimeout(function(){ sendDeferred(attemptsLeft-1); }, 1000);
+                            }
+                        }).catch(err => {
+                            console.error('Failed to request OTP send:', err);
+                            if (attemptsLeft > 0) setTimeout(function(){ sendDeferred(attemptsLeft-1); }, 1000);
+                        });
+                })(5);
+            }
+        }
+
+        update();
+        timer = setInterval(update, 1000);
+    })();
+</script>
+{% endif %}
 
 {% if error_message %}
 <script>

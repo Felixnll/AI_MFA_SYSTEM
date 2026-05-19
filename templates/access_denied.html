@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Access Denied</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Times New Roman';
+            background: white;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .deny-container {
+            background: white;
+            padding: 42px;
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            max-width: 520px;
+            text-align: center;
+        }
+
+        h1 {
+            color: #b42318;
+            margin-bottom: 16px;
+            font-size: 32px;
+        }
+
+        p {
+            color: #555;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 14px;
+        }
+
+        .reason {
+            background: #fde8e8;
+            color: #b42318;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-weight: 700;
+            margin-bottom: 24px;
+        }
+
+        .meta {
+            margin-top: -6px;
+            margin-bottom: 16px;
+            color: #777;
+            font-size: 14px;
+        }
+
+        .countdown {
+            display: inline-block;
+            min-width: 2ch;
+            font-weight: 700;
+            color: #b42318;
+        }
+
+        a {
+            display: inline-block;
+            padding: 12px 22px;
+            background: rgb(10, 1, 1);
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div class="deny-container">
+    <h1>Access Denied</h1>
+    <p>User: <strong>{{ username }}</strong></p>
+    {% if denial_type == 'blocked' %}
+    <div class="reason">High-risk login blocked</div>
+    <p class="meta">You can retry after <strong id="countdown" class="countdown">{{ remaining_seconds }}</strong> seconds.</p>
+    {% elif denial_type == 'invalid_otp' %}
+    <div class="reason">Invalid OTP entered</div>
+    <p class="meta">The system rejected the OTP challenge for this login attempt.</p>
+    {% else %}
+    <div class="reason">{{ reason }}</div>
+    {% endif %}
+
+    <a href="/">Return to Login</a>
+</div>
+
+{% if denial_type == 'blocked' %}
+<script>
+    (function () {
+        const countdownEl = document.getElementById('countdown');
+        if (!countdownEl) return;
+
+        let remaining = parseInt(countdownEl.textContent, 10) || 0;
+        const timer = setInterval(() => {
+            remaining = Math.max(0, remaining - 1);
+            countdownEl.textContent = remaining;
+
+            if (remaining <= 0) {
+                clearInterval(timer);
+                countdownEl.textContent = '0';
+            }
+        }, 1000);
+    })();
+</script>
+{% endif %}
+
+</body>
+</html>

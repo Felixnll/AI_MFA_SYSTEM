@@ -42,6 +42,34 @@
             font-weight: 500;
         }
 
+        .risk-line {
+            margin-bottom: 14px;
+        }
+
+        .risk-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 999px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .risk-low {
+            background: #e7f7ec;
+            color: #1e7a3b;
+        }
+
+        .risk-medium {
+            background: #fff4db;
+            color: #9a6700;
+        }
+
+        .risk-high {
+            background: #fde8e8;
+            color: #b42318;
+        }
+
         .button-container {
             display: flex;
             justify-content: center;
@@ -68,6 +96,7 @@
 
 <div class="main-container">
     <h1>Welcome, {{ username }}! 👋</h1>
+    <p class="risk-line">Risk level during login: <span class="risk-badge risk-{{ risk_level|lower }}">{{ risk_level|capitalize }}</span></p>
     <p>PROJECT: AI/ML-ENHANCED MULTI-FACTOR AUTHENTICATION TO MITIGATE PASSWORD GUESSING ATTACKS</p>
 
     <div class="button-container">
