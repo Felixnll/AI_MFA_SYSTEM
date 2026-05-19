@@ -31,6 +31,7 @@ run this in Powershell in VSC:
   $env:SMTP_SENDER="email@example.com"
 
   python app.py
+  
 ---------------------------------------------------------------------------------------------------------------------------------------
 Example:
 $env:SMTP_HOST="smtp.gmail.com"
