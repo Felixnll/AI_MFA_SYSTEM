@@ -52,6 +52,7 @@ USERS_FILE = "users.json"
 OTP_STORE_FILE = "otp_store.json"
 MODEL_PATH = Path("models/risk_model.joblib")
 RISK_MODEL = None
+MODEL_MANAGER = None
 
 login_tracker = {}
 
@@ -180,48 +181,73 @@ def simple_risk_engine(features):
     return "low", score
 
 
-def load_risk_model():
-    global RISK_MODEL
-    try:
-        if MODEL_PATH.exists():
+class ModelManager:
+    """Manage loading and predicting with the risk model, with automatic reload when file changes."""
+    def __init__(self, path: Path):
+        self.path = path
+        self.model = None
+        self.mtime = None
+
+    def load(self):
+        try:
+            if not self.path.exists():
+                self.model = None
+                self.mtime = None
+                return False
+            mtime = self.path.stat().st_mtime
+            if self.model is not None and self.mtime == mtime:
+                return True
+            # attempt to load via joblib
             if _joblib_load is not None:
-                RISK_MODEL = _joblib_load(MODEL_PATH)
-                print(f"Loaded risk model from {MODEL_PATH}")
+                self.model = _joblib_load(self.path)
             else:
-                try:
-                    import joblib
-                    RISK_MODEL = joblib.load(MODEL_PATH)
-                    print(f"Loaded risk model from {MODEL_PATH} (joblib imported dynamically)")
-                except Exception:
-                    RISK_MODEL = None
-        else:
-            RISK_MODEL = None
-    except Exception as e:
-        print(f"Failed to load model: {e}")
-        RISK_MODEL = None
+                import joblib
+                self.model = joblib.load(self.path)
+            self.mtime = mtime
+            print(f"Loaded risk model from {self.path}")
+            return True
+        except Exception as e:
+            print(f"Failed to load model: {e}")
+            self.model = None
+            self.mtime = None
+            return False
+
+    def predict(self, features: dict):
+        """Return (label, confidence) or (None, 0.0) if unavailable."""
+        if self.model is None or np is None:
+            return None, 0.0
+        try:
+            arr = np.array([[
+                features.get('failed_attempts', 0),
+                1 if features.get('short_interval') else 0,
+                1 if features.get('unknown_device') else 0,
+                1 if features.get('unusual_hour') else 0,
+                1 if features.get('password_match') else 0,
+            ]])
+            # auto-reload if file changed
+            try:
+                if self.path.exists():
+                    mtime = self.path.stat().st_mtime
+                    if self.mtime != mtime:
+                        self.load()
+            except Exception:
+                pass
+            probs = self.model.predict_proba(arr)[0]
+            idx = int(np.argmax(probs))
+            label = {0: 'low', 1: 'medium', 2: 'high'}.get(idx, 'low')
+            confidence = float(probs[idx])
+            return label, confidence
+        except Exception as e:
+            print(f"Model prediction error: {e}")
+            return None, 0.0
 
 
 def predict_risk_ml(features):
-    """Use loaded ML model to predict risk; returns (label_str, confidence) or (None, 0) if unavailable."""
-    if RISK_MODEL is None or np is None:
-        return None, 0.0
-    try:
-        arr = np.array([[
-            features.get('failed_attempts', 0),
-            1 if features.get('short_interval') else 0,
-            1 if features.get('unknown_device') else 0,
-            1 if features.get('unusual_hour') else 0,
-            1 if features.get('password_match') else 0,
-        ]])
-        probs = RISK_MODEL.predict_proba(arr)[0]
-        # classes are [0(low),1(medium),2(high)]
-        idx = int(np.argmax(probs))
-        label = {0: 'low', 1: 'medium', 2: 'high'}.get(idx, 'low')
-        confidence = float(probs[idx])
-        return label, confidence
-    except Exception as e:
-        print(f"Model prediction error: {e}")
-        return None, 0.0
+    global MODEL_MANAGER
+    if MODEL_MANAGER is None:
+        MODEL_MANAGER = ModelManager(MODEL_PATH)
+        MODEL_MANAGER.load()
+    return MODEL_MANAGER.predict(features)
 
 
 def log_feature_vector(features, label):
@@ -619,23 +645,40 @@ def debug_env():
 @app.route('/ml_status', methods=['GET'])
 def ml_status():
     """Return ML availability and model status."""
-    model_loaded = RISK_MODEL is not None
+    global MODEL_MANAGER
     numpy_available = np is not None
-    ml_enabled = model_loaded and numpy_available
+    model_loaded = False
     info = {
-        'ml_enabled': ml_enabled,
-        'model_loaded': model_loaded,
+        'ml_enabled': False,
+        'model_loaded': False,
         'numpy_available': numpy_available,
         'model_path': str(MODEL_PATH) if MODEL_PATH.exists() else None,
     }
-    # If model is loaded and exposes classes_ or feature_importances_, include brief info
+    if MODEL_MANAGER is None:
+        MODEL_MANAGER = ModelManager(MODEL_PATH)
+        MODEL_MANAGER.load()
+    model_loaded = MODEL_MANAGER.model is not None
+    info['model_loaded'] = model_loaded
+    info['ml_enabled'] = model_loaded and numpy_available
     if model_loaded:
         try:
-            info['classes'] = getattr(RISK_MODEL, 'classes_', None).tolist() if hasattr(RISK_MODEL, 'classes_') else None
-            info['has_feature_importances'] = hasattr(RISK_MODEL, 'feature_importances_')
+            mdl = MODEL_MANAGER.model
+            info['classes'] = getattr(mdl, 'classes_', None).tolist() if hasattr(mdl, 'classes_') else None
+            info['feature_importances'] = getattr(mdl, 'feature_importances_', None).tolist() if hasattr(mdl, 'feature_importances_') else None
+            info['model_mtime'] = MODEL_MANAGER.mtime
         except Exception:
             pass
     return jsonify(info)
+
+
+@app.route('/admin/ml_reload', methods=['POST'])
+def admin_ml_reload():
+    """Force reload the ML model from disk."""
+    global MODEL_MANAGER
+    if MODEL_MANAGER is None:
+        MODEL_MANAGER = ModelManager(MODEL_PATH)
+    ok = MODEL_MANAGER.load()
+    return jsonify({'reloaded': ok, 'model_loaded': MODEL_MANAGER.model is not None})
 
 
 def format_features(f):
@@ -665,10 +708,12 @@ def ml_samples():
     out = []
     for name, feat in samples:
         feats = format_features(feat)
-        # Ensure model is loaded lazily when needed
-        if RISK_MODEL is None:
+        # Ensure model manager is initialized and model loaded lazily when needed
+        global MODEL_MANAGER
+        if MODEL_MANAGER is None:
+            MODEL_MANAGER = ModelManager(MODEL_PATH)
             try:
-                load_risk_model()
+                MODEL_MANAGER.load()
             except Exception:
                 pass
         ml_label, ml_conf = predict_risk_ml(feats)
@@ -704,10 +749,12 @@ def ml_predict():
     """
     data = request.get_json(force=True, silent=True) or {}
     feats = format_features(data)
-    # Lazy-load model if needed so importing the app doesn't require running as __main__
-    if RISK_MODEL is None:
+    # Lazy-load model manager if needed so importing the app doesn't require running as __main__
+    global MODEL_MANAGER
+    if MODEL_MANAGER is None:
+        MODEL_MANAGER = ModelManager(MODEL_PATH)
         try:
-            load_risk_model()
+            MODEL_MANAGER.load()
         except Exception:
             pass
     ml_label, ml_conf = predict_risk_ml(feats)
@@ -737,7 +784,8 @@ def ml_predict():
 # Attempt to load the ML model at import time so test clients and imported modules
 # see ML availability without running the app as a script.
 try:
-    load_risk_model()
+    MODEL_MANAGER = ModelManager(MODEL_PATH)
+    MODEL_MANAGER.load()
 except Exception:
     pass
 
@@ -748,5 +796,9 @@ def logout():
 
 if __name__ == "__main__":
     # Attempt to load ML model (optional)
-    load_risk_model()
+    try:
+        MODEL_MANAGER = ModelManager(MODEL_PATH)
+        MODEL_MANAGER.load()
+    except Exception:
+        pass
     app.run(debug=True)
