@@ -7,6 +7,19 @@ import smtplib
 import ssl
 from email.mime.text import MIMEText
 from datetime import datetime
+import csv
+import traceback
+
+# Lazy-friendly imports for optional ML dependencies
+try:
+    import numpy as np
+except Exception:
+    np = None
+
+try:
+    from joblib import load as _joblib_load
+except Exception:
+    _joblib_load = None
 import time
 
 app = Flask(__name__)
@@ -37,6 +50,8 @@ load_dotenv_file()
 
 USERS_FILE = "users.json"
 OTP_STORE_FILE = "otp_store.json"
+MODEL_PATH = Path("models/risk_model.joblib")
+RISK_MODEL = None
 
 login_tracker = {}
 
@@ -46,6 +61,31 @@ def load_users():
         with open(USERS_FILE, "r") as f:
             return json.load(f)
     return {}
+
+
+def save_users(users):
+    """Persist users database to JSON file."""
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+
+
+def update_user_login_hour(username, hour, max_history=100):
+    """Record a successful login hour for a user (keeps recent `max_history` entries)."""
+    users = load_users()
+    if username not in users:
+        return
+    user = users[username]
+    if "login_hours" not in user or not isinstance(user.get("login_hours"), list):
+        user["login_hours"] = []
+    try:
+        user["login_hours"].append(int(hour))
+    except Exception:
+        pass
+    # Trim history to last N entries
+    if len(user["login_hours"]) > max_history:
+        user["login_hours"] = user["login_hours"][-max_history:]
+    users[username] = user
+    save_users(users)
 
 
 def load_otp_store():
@@ -84,8 +124,30 @@ def extract_features(username, user_record, password_match, device_id):
     current_time = time.time()
     last_attempt_time = state["last_attempt_time"]
     short_interval = last_attempt_time is not None and (current_time - last_attempt_time) < 5
-    unusual_hour = datetime.now().hour < 6
-    unknown_device = device_id.strip() != user_record.get("known_device", "")
+    # Determine whether this login attempt occurs at an unusual hour for this user.
+    # We keep a simple historic per-user hour histogram (`login_hours`) and
+    # mark as unusual when the current hour isn't among the user's typical hours.
+    current_hour = datetime.now().hour
+    login_hours = user_record.get("login_hours", []) if user_record else []
+    unusual_hour = False
+    if login_hours and len(login_hours) >= 3:
+        # build counts per hour
+        counts = {h: 0 for h in range(24)}
+        for h in login_hours:
+            try:
+                counts[int(h)] += 1
+            except Exception:
+                continue
+        max_count = max(counts.values()) if counts else 0
+        # typical hours are those with at least 20% of the max count (tunable)
+        if max_count > 0:
+            typical_hours = {h for h, c in counts.items() if c >= max(1, int(0.2 * max_count))}
+            unusual_hour = current_hour not in typical_hours
+    else:
+        # Not enough history to judge; treat as not unusual to avoid false positives
+        unusual_hour = False
+
+    unknown_device = device_id.strip() != user_record.get("known_device", "") if user_record else True
 
     return {
         "failed_attempts": state["failed_attempts"],
@@ -116,6 +178,107 @@ def simple_risk_engine(features):
     if score >= 3:
         return "medium", score
     return "low", score
+
+
+def load_risk_model():
+    global RISK_MODEL
+    try:
+        if MODEL_PATH.exists():
+            if _joblib_load is not None:
+                RISK_MODEL = _joblib_load(MODEL_PATH)
+                print(f"Loaded risk model from {MODEL_PATH}")
+            else:
+                try:
+                    import joblib
+                    RISK_MODEL = joblib.load(MODEL_PATH)
+                    print(f"Loaded risk model from {MODEL_PATH} (joblib imported dynamically)")
+                except Exception:
+                    RISK_MODEL = None
+        else:
+            RISK_MODEL = None
+    except Exception as e:
+        print(f"Failed to load model: {e}")
+        RISK_MODEL = None
+
+
+def predict_risk_ml(features):
+    """Use loaded ML model to predict risk; returns (label_str, confidence) or (None, 0) if unavailable."""
+    if RISK_MODEL is None or np is None:
+        return None, 0.0
+    try:
+        arr = np.array([[
+            features.get('failed_attempts', 0),
+            1 if features.get('short_interval') else 0,
+            1 if features.get('unknown_device') else 0,
+            1 if features.get('unusual_hour') else 0,
+            1 if features.get('password_match') else 0,
+        ]])
+        probs = RISK_MODEL.predict_proba(arr)[0]
+        # classes are [0(low),1(medium),2(high)]
+        idx = int(np.argmax(probs))
+        label = {0: 'low', 1: 'medium', 2: 'high'}.get(idx, 'low')
+        confidence = float(probs[idx])
+        return label, confidence
+    except Exception as e:
+        print(f"Model prediction error: {e}")
+        return None, 0.0
+
+
+def log_feature_vector(features, label):
+    """Append feature vector and label to CSV for future training.
+
+    Columns: failed_attempts, short_interval, unknown_device, unusual_hour, password_match, label
+    """
+    try:
+        import csv
+        header = ['failed_attempts','short_interval','unknown_device','unusual_hour','password_match','label']
+        file_path = Path('training_data.csv')
+        write_header = not file_path.exists()
+        with open(file_path, 'a', newline='') as f:
+            writer = csv.writer(f)
+            if write_header:
+                writer.writerow(header)
+            writer.writerow([
+                features.get('failed_attempts',0),
+                1 if features.get('short_interval') else 0,
+                1 if features.get('unknown_device') else 0,
+                1 if features.get('unusual_hour') else 0,
+                1 if features.get('password_match') else 0,
+                label,
+            ])
+    except Exception:
+        pass
+
+
+# File to persist ML prediction events (JSON lines)
+PREDICTION_LOG = Path('ml_predictions.jsonl')
+
+
+def write_ml_prediction(record: dict):
+    """Append a JSON record describing an ML prediction to the predictions log.
+
+    Record is expected to be JSON-serializable.
+    """
+    try:
+        with open(PREDICTION_LOG, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(record, default=str) + '\n')
+    except Exception:
+        # keep logging best-effort; avoid raising in request path
+        print("Failed to write prediction log:\n", traceback.format_exc())
+
+
+def read_recent_predictions(n=100):
+    """Read up to `n` most recent prediction records from the JSON-lines log."""
+    try:
+        if not PREDICTION_LOG.exists():
+            return []
+        with open(PREDICTION_LOG, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        lines = [l.strip() for l in lines if l.strip()]
+        lines = lines[-n:]
+        return [json.loads(l) for l in lines]
+    except Exception:
+        return []
 
 
 def send_otp_email(receiver_email, username, otp_code):
@@ -198,7 +361,38 @@ def home():
             state = get_login_state(username)
             state["last_attempt_time"] = time.time()
             features = extract_features(username, users[username], True, device_id)
-            risk_level, risk_score = simple_risk_engine(features)
+            # Try ML model first; fall back to rule-based engine when model unavailable or low-confidence
+            ml_label, ml_conf = predict_risk_ml(features)
+            if ml_label and ml_conf >= 0.60:
+                risk_level = ml_label
+                # use confidence as a proxy for score (scaled)
+                risk_score = int(ml_conf * 10)
+            else:
+                risk_level, risk_score = simple_risk_engine(features)
+
+            # Record this prediction event for admin review
+            try:
+                rule_label_tmp, rule_score_tmp = simple_risk_engine(features)
+                write_ml_prediction({
+                    'timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'source': 'login_success',
+                    'username': username,
+                    'features': features,
+                    'ml_label': ml_label,
+                    'ml_confidence': ml_conf,
+                    'rule_label': rule_label_tmp,
+                    'rule_score': rule_score_tmp,
+                })
+            except Exception:
+                pass
+
+            # Log features + simple_label for future training
+            try:
+                simple_label, _ = simple_risk_engine(features)
+                label_map = {'low': 0, 'medium': 1, 'high': 2}
+                log_feature_vector(features, label_map.get(simple_label, 0))
+            except Exception:
+                pass
 
             session["risk_level"] = risk_level
             session["risk_score"] = risk_score
@@ -251,7 +445,37 @@ def home():
             state["failed_attempts"] += 1
             state["last_attempt_time"] = time.time()
             features = extract_features(username, users[username], False, device_id)
-            risk_level, risk_score = simple_risk_engine(features)
+            # Try ML model for failed attempts as well
+            ml_label, ml_conf = predict_risk_ml(features)
+            if ml_label and ml_conf >= 0.60:
+                risk_level = ml_label
+                risk_score = int(ml_conf * 10)
+            else:
+                risk_level, risk_score = simple_risk_engine(features)
+
+            # Log features (label from rule engine)
+            try:
+                simple_label, _ = simple_risk_engine(features)
+                label_map = {'low': 0, 'medium': 1, 'high': 2}
+                log_feature_vector(features, label_map.get(simple_label, 0))
+            except Exception:
+                pass
+
+            # Record prediction event for failed attempt
+            try:
+                rule_label_tmp, rule_score_tmp = simple_risk_engine(features)
+                write_ml_prediction({
+                    'timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'source': 'login_failed_attempt',
+                    'username': username,
+                    'features': features,
+                    'ml_label': ml_label,
+                    'ml_confidence': ml_conf,
+                    'rule_label': rule_label_tmp,
+                    'rule_score': rule_score_tmp,
+                })
+            except Exception:
+                pass
 
             if risk_level == "high":
                 state["blocked_until"] = time.time() + 60
@@ -286,6 +510,12 @@ def otp_verification():
         if submitted_otp == expected_otp:
             otp_store.pop(username, None)
             save_otp_store(otp_store)
+            # Record this successful login hour for the user
+            try:
+                update_user_login_hour(username, datetime.now().hour)
+            except Exception:
+                pass
+
             # Clear pending session keys related to verification/delay
             session.pop("pending_user", None)
             session.pop("delay_until", None)
@@ -385,10 +615,138 @@ def debug_env():
         'SMTP_SENDER': smtp_sender,
     })
 
+
+@app.route('/ml_status', methods=['GET'])
+def ml_status():
+    """Return ML availability and model status."""
+    model_loaded = RISK_MODEL is not None
+    numpy_available = np is not None
+    ml_enabled = model_loaded and numpy_available
+    info = {
+        'ml_enabled': ml_enabled,
+        'model_loaded': model_loaded,
+        'numpy_available': numpy_available,
+        'model_path': str(MODEL_PATH) if MODEL_PATH.exists() else None,
+    }
+    # If model is loaded and exposes classes_ or feature_importances_, include brief info
+    if model_loaded:
+        try:
+            info['classes'] = getattr(RISK_MODEL, 'classes_', None).tolist() if hasattr(RISK_MODEL, 'classes_') else None
+            info['has_feature_importances'] = hasattr(RISK_MODEL, 'feature_importances_')
+        except Exception:
+            pass
+    return jsonify(info)
+
+
+def format_features(f):
+    # Ensure feature dict contains expected keys and types
+    return {
+        'failed_attempts': int(f.get('failed_attempts', 0)),
+        'short_interval': bool(f.get('short_interval', False)),
+        'unknown_device': bool(f.get('unknown_device', False)),
+        'unusual_hour': bool(f.get('unusual_hour', False)),
+        'password_match': bool(f.get('password_match', False)),
+    }
+
+
+@app.route('/ml_samples', methods=['GET'])
+def ml_samples():
+    """Return ML and rule-based predictions for representative sample inputs."""
+    samples = [
+        ("low", {"failed_attempts": 0, "short_interval": False, "unknown_device": False, "unusual_hour": False, "password_match": True}),
+        ("low_unusual_hour", {"failed_attempts": 0, "short_interval": False, "unknown_device": False, "unusual_hour": True, "password_match": True}),
+        ("medium_guess", {"failed_attempts": 1, "short_interval": True, "unknown_device": True, "unusual_hour": False, "password_match": True}),
+        ("medium_wrong_pw", {"failed_attempts": 2, "short_interval": False, "unknown_device": True, "unusual_hour": False, "password_match": False}),
+        ("high_wrong_pw", {"failed_attempts": 3, "short_interval": True, "unknown_device": True, "unusual_hour": True, "password_match": False}),
+        ("high_rapid_failures", {"failed_attempts": 5, "short_interval": True, "unknown_device": True, "unusual_hour": False, "password_match": False}),
+        ("unknown_device_only", {"failed_attempts": 0, "short_interval": False, "unknown_device": True, "unusual_hour": False, "password_match": True}),
+    ]
+
+    out = []
+    for name, feat in samples:
+        feats = format_features(feat)
+        # Ensure model is loaded lazily when needed
+        if RISK_MODEL is None:
+            try:
+                load_risk_model()
+            except Exception:
+                pass
+        ml_label, ml_conf = predict_risk_ml(feats)
+        rule_label, rule_score = simple_risk_engine(feats)
+        out.append({
+            'name': name,
+            'features': feats,
+            'ml_label': ml_label,
+            'ml_confidence': ml_conf,
+            'rule_label': rule_label,
+            'rule_score': rule_score,
+        })
+    return jsonify({'samples': out})
+
+
+@app.route('/admin/ml_dashboard', methods=['GET'])
+def admin_ml_dashboard():
+    """Render a small admin dashboard showing recent ML prediction events."""
+    try:
+        preds = read_recent_predictions(200)
+        # show most recent first
+        preds = sorted(preds, key=lambda x: x.get('timestamp', ''), reverse=True)
+    except Exception:
+        preds = []
+    return render_template('admin_ml_dashboard.html', predictions=preds)
+
+
+@app.route('/ml_predict', methods=['POST'])
+def ml_predict():
+    """Accepts JSON with feature keys and returns ML + rule predictions.
+
+    Expected JSON keys: failed_attempts, short_interval, unknown_device, unusual_hour, password_match
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    feats = format_features(data)
+    # Lazy-load model if needed so importing the app doesn't require running as __main__
+    if RISK_MODEL is None:
+        try:
+            load_risk_model()
+        except Exception:
+            pass
+    ml_label, ml_conf = predict_risk_ml(feats)
+    rule_label, rule_score = simple_risk_engine(feats)
+    # Persist prediction event for admin dashboard
+    try:
+        write_ml_prediction({
+            'timestamp': datetime.utcnow().isoformat() + 'Z',
+            'source': 'ml_predict_api',
+            'username': session.get('pending_user'),
+            'features': feats,
+            'ml_label': ml_label,
+            'ml_confidence': ml_conf,
+            'rule_label': rule_label,
+            'rule_score': rule_score,
+        })
+    except Exception:
+        pass
+    return jsonify({
+        'features': feats,
+        'ml_label': ml_label,
+        'ml_confidence': ml_conf,
+        'rule_label': rule_label,
+        'rule_score': rule_score,
+    })
+
+# Attempt to load the ML model at import time so test clients and imported modules
+# see ML availability without running the app as a script.
+try:
+    load_risk_model()
+except Exception:
+    pass
+
 @app.route("/logout", methods=["POST"])
 def logout():
     session.clear()
     return redirect("/")
 
 if __name__ == "__main__":
+    # Attempt to load ML model (optional)
+    load_risk_model()
     app.run(debug=True)
