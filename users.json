@@ -2,13 +2,18 @@
   "felix": {
     "password": "felix123",
     "email": "felixnoell123@gmail.com",
-    "known_device": "laptop1"
+    "known_device": "laptop1",
+    "known_ip": "192.168.1.10",
+    "known_location": "Kuching"
   },
   "kelland": {
     "password": "kelland123",
-    "email": "kelland@example.com",
-    "known_device": "laptop2"
+    "email": "thienkelland@gmail.com",
+    "known_device": "laptop2",
+    "known_ip": "192.168.1.20",
+    "known_location": "Kuching"
   },
+
   "erra": {
     "password": "erra123",
     "email": "erra@example.com",

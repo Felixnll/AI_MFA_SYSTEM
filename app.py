@@ -8,9 +8,13 @@ import ssl
 from email.mime.text import MIMEText
 from datetime import datetime
 import time
+import joblib
 
 app = Flask(__name__)
 app.secret_key = "dev-secret-key-change-in-production"
+
+MODEL_FILE = "risk_model.pkl"
+risk_model_package = None
 
 # Lightweight .env loader: if a .env file exists in project root, load keys into os.environ
 def load_dotenv_file(path='.env'):
@@ -74,18 +78,61 @@ def get_login_state(username):
             "failed_attempts": 0,
             "last_attempt_time": None,
             "blocked_until": 0,
+            "last_ip": None,
+            "same_ip_attempts": 0,
         }
-    return login_tracker[username]
+
+    state = login_tracker[username]
+
+    state.setdefault("last_ip", None)
+    state.setdefault("same_ip_attempts", 0)
+
+    return state
 
 
-def extract_features(username, user_record, password_match, device_id):
-    """Extract simple login risk features."""
+def normalize_text(value):
+    return str(value or "").strip().lower()
+
+
+def extract_features(username, user_record, password_match, device_id, ip_address, login_location):
+    """Extract login risk features for the Decision Tree model."""
+
     state = get_login_state(username)
+
     current_time = time.time()
     last_attempt_time = state["last_attempt_time"]
-    short_interval = last_attempt_time is not None and (current_time - last_attempt_time) < 5
+
+    short_interval = (
+        last_attempt_time is not None
+        and (current_time - last_attempt_time) < 5
+    )
+
     unusual_hour = datetime.now().hour < 6
-    unknown_device = device_id.strip() != user_record.get("known_device", "")
+
+    unknown_device = (
+        normalize_text(device_id)
+        != normalize_text(user_record.get("known_device", ""))
+    )
+
+    unknown_ip = (
+        normalize_text(ip_address)
+        != normalize_text(user_record.get("known_ip", ""))
+    )
+
+    unknown_location = (
+        normalize_text(login_location)
+        != normalize_text(user_record.get("known_location", ""))
+    )
+
+    if normalize_text(ip_address) == normalize_text(state.get("last_ip")):
+        state["same_ip_attempts"] += 1
+    else:
+        state["same_ip_attempts"] = 1
+
+    many_attempts_from_same_ip = state["same_ip_attempts"] >= 3
+
+    state["last_ip"] = ip_address
+    state["last_attempt_time"] = current_time
 
     return {
         "failed_attempts": state["failed_attempts"],
@@ -93,6 +140,9 @@ def extract_features(username, user_record, password_match, device_id):
         "unknown_device": unknown_device,
         "unusual_hour": unusual_hour,
         "password_match": password_match,
+        "unknown_ip": unknown_ip,
+        "many_attempts_from_same_ip": many_attempts_from_same_ip,
+        "unknown_location": unknown_location,
     }
 
 
@@ -117,6 +167,45 @@ def simple_risk_engine(features):
         return "medium", score
     return "low", score
 
+def load_risk_model():
+    """Load the trained Decision Tree model once."""
+    global risk_model_package
+
+    if risk_model_package is None:
+        risk_model_package = joblib.load(MODEL_FILE)
+
+    return risk_model_package
+
+
+def ml_risk_engine(features):
+    """
+    Predict login risk using the trained Decision Tree model.
+
+    Returns:
+        risk_level: low, medium, or high
+        risk_score: confidence percentage
+    """
+    try:
+        package = load_risk_model()
+        model = package["model"]
+        feature_names = package["feature_names"]
+
+        input_row = [[
+            int(features.get(name, 0))
+            for name in feature_names
+        ]]
+
+        risk_level = model.predict(input_row)[0]
+
+        probabilities = model.predict_proba(input_row)[0]
+        confidence = round(max(probabilities) * 100, 2)
+
+        return risk_level, confidence
+
+    except Exception as exc:
+        print(f"[ML MODEL ERROR] {exc}")
+        print("[FALLBACK] Using simple risk engine instead.")
+        return simple_risk_engine(features)
 
 def send_otp_email(receiver_email, username, otp_code):
     """Send OTP email using SMTP configuration from environment variables.
@@ -177,6 +266,9 @@ def home():
         username = request.form.get("username", "")
         password = request.form.get("password", "")
         device_id = request.form.get("device_id", "")
+
+        ip_address = request.form.get("ip_address", "")
+        login_location = request.form.get("login_location", "")
         
         users = load_users()
 
@@ -196,9 +288,20 @@ def home():
         # Validate credentials against database
         if username in users and password == users[username]["password"]:
             state = get_login_state(username)
-            state["last_attempt_time"] = time.time()
-            features = extract_features(username, users[username], True, device_id)
-            risk_level, risk_score = simple_risk_engine(features)
+            # state["last_attempt_time"] = time.time()
+            features = extract_features(
+            username,
+            users[username],
+            True,
+            device_id,
+            ip_address,
+            login_location
+            )
+
+            risk_level, risk_score = ml_risk_engine(features)
+
+            print("[LOGIN FEATURES]", features)
+            print("[ML RISK RESULT]", risk_level, risk_score)
 
             session["risk_level"] = risk_level
             session["risk_score"] = risk_score
@@ -249,9 +352,19 @@ def home():
         if username in users:
             state = get_login_state(username)
             state["failed_attempts"] += 1
-            state["last_attempt_time"] = time.time()
-            features = extract_features(username, users[username], False, device_id)
-            risk_level, risk_score = simple_risk_engine(features)
+            # state["last_attempt_time"] = time.time()
+            features = extract_features(
+                    username,
+                    users[username],
+                    False,
+                    device_id,
+                    ip_address,
+                    login_location
+                )
+            risk_level, risk_score = ml_risk_engine(features)
+
+            print("[LOGIN FEATURES]", features)
+            print("[ML RISK RESULT]", risk_level, risk_score)
 
             if risk_level == "high":
                 state["blocked_until"] = time.time() + 60

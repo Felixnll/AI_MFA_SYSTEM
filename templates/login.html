@@ -1,108 +1,137 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
+  <head>
     <title>AI MFA Login</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
 
-        body {
-            font-family: 'Times New Roman';
-            background: white;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
+      body {
+        font-family: "Times New Roman";
+        background: white;
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
 
-        .login-container {
-            background: white;
-            padding: 40px;
-            border-radius: 10px;
-            
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-            width: 100%;
-            max-width: 400px;
-        }
+      .login-container {
+        background: white;
+        padding: 40px;
+        border-radius: 10px;
 
-        h1 {
-            color: #333;
-            margin-bottom: 30px;
-            text-align: center;
-            font-size: 28px;
-        }
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+        width: 100%;
+        max-width: 400px;
+      }
 
-        form {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-        }
+      h1 {
+        color: #333;
+        margin-bottom: 30px;
+        text-align: center;
+        font-size: 28px;
+      }
 
-        input {
-            padding: 12px 15px;
-            border: 2px solid #e0e0e0;
-            border-radius: 5px;
-            font-size: 16px;
-            transition: border-color 0.3s;
-        }
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+      }
 
-        button {
-            padding: 12px 15px;
-            background: rgb(10, 1, 1);
-            color: white;
-            border: none;
-            border-radius: 5px;
-            font-size: 16px;
-            font-weight: bold;
-            cursor: pointer;
-        }
+      input {
+        padding: 12px 15px;
+        border: 2px solid #e0e0e0;
+        border-radius: 5px;
+        font-size: 16px;
+        transition: border-color 0.3s;
+      }
 
+      button {
+        padding: 12px 15px;
+        background: rgb(10, 1, 1);
+        color: white;
+        border: none;
+        border-radius: 5px;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+      }
     </style>
-</head>
-<body>
+  </head>
+  <body>
+    <div class="login-container">
+      <h1>Securoserv Login</h1>
 
-<div class="login-container">
-    <h1>Securoserv Login</h1>
+      <form method="post">
+        <input type="text" name="username" placeholder="Username" required />
 
-    <form method="post">
-    <input type="text" name="username" placeholder="Username" required>
+        <input
+          type="password"
+          id="password"
+          name="password"
+          placeholder="Password"
+          required
+        />
 
-    <input type="password" id="password" name="password" placeholder="Password" required>
+        <input
+          type="text"
+          name="device_id"
+          placeholder="Device ID (e.g. laptop1)"
+          required
+        />
 
-    <input type="text" name="device_id" placeholder="Device ID (e.g. laptop1)" required>
-    
-    <label style="display: flex; align-items: center; gap: 5px; margin-top: 5px;">
-        <input type="checkbox" id="showPassword" onchange="togglePassword()">
-        <span style="font-size: 14px; color: #666;">Show password</span>
-    </label>
+        <label>IP Address</label>
+        <input
+          type="text"
+          name="ip_address"
+          placeholder="e.g. 192.168.1.20"
+          required
+        />
 
+        <label>Location</label>
+        <input
+          type="text"
+          name="login_location"
+          placeholder="e.g. Kuching"
+          required
+        />
 
+        <label
+          style="display: flex; align-items: center; gap: 5px; margin-top: 5px"
+        >
+          <input
+            type="checkbox"
+            id="showPassword"
+            onchange="togglePassword()"
+          />
+          <span style="font-size: 14px; color: #666">Show password</span>
+        </label>
 
         <button type="submit">Login</button>
-    
-    <script>
-        function togglePassword() {
+
+        <script>
+          function togglePassword() {
             const passwordInput = document.getElementById("password");
-            const showPasswordCheckbox = document.getElementById("showPassword");
-            
+            const showPasswordCheckbox =
+              document.getElementById("showPassword");
+
             if (showPasswordCheckbox.checked) {
-                passwordInput.type = "text";
+              passwordInput.type = "text";
             } else {
-                passwordInput.type = "password";
+              passwordInput.type = "password";
             }
-        }
+          }
+        </script>
+      </form>
+    </div>
+
+    {% if error_message %}
+    <script>
+      alert("{{ error_message }}");
     </script>
-    </form>
-</div>
-
-{% if error_message %}
-<script>
-    alert("{{ error_message }}");
-</script>
-{% endif %}
-
-</body>
+    {% endif %}
+  </body>
 </html>
