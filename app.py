@@ -651,22 +651,6 @@ def home():
             state['_ip_address'] = ip_addr
             state['_typing_time_ms'] = typing_time_ms
 
-            # After two failed attempts, force a CAPTCHA before doing anything else.
-            if state["failed_attempts"] >= 2:
-                a = random.randint(2, 9)
-                b = random.randint(2, 9)
-                session['captcha_question'] = f"What is {a} + {b}?"
-                session['captcha_answer'] = str(a + b)
-                return render_template(
-                    'login.html',
-                    error_message='Please solve the CAPTCHA to continue.',
-                    show_captcha=True,
-                    captcha_question=session.get('captcha_question'),
-                    mitigation_summary=build_mitigation_summary(
-                        captcha_required=True,
-                    ),
-                )
-
             features = extract_features(username, users[username], False, device_id, override_unusual_hour=demo_unusual_hour)
             # Try ML model for failed attempts as well
             ml_label, ml_conf = predict_risk_ml(features)
@@ -699,6 +683,39 @@ def home():
                 })
             except Exception:
                 pass
+
+            # High-risk failed attempts should immediately trigger temporary blocking.
+            if risk_level == "high":
+                state["blocked_until"] = time.time() + 60
+                return render_template(
+                    "access_denied.html",
+                    username=username,
+                    denial_type="blocked",
+                    remaining_seconds=60,
+                    reason="High-risk login detected. Access temporarily blocked for 60 seconds.",
+                    mitigation_summary=build_mitigation_summary(
+                        features,
+                        risk_level="high",
+                        blocked=True,
+                    ),
+                )
+
+            # After two failed attempts, keep requiring CAPTCHA for subsequent attempts.
+            if state["failed_attempts"] >= 2:
+                a = random.randint(2, 9)
+                b = random.randint(2, 9)
+                session['captcha_question'] = f"What is {a} + {b}?"
+                session['captcha_answer'] = str(a + b)
+                return render_template(
+                    'login.html',
+                    error_message='Please solve the CAPTCHA to continue.',
+                    show_captcha=True,
+                    captcha_question=session.get('captcha_question'),
+                    mitigation_summary=build_mitigation_summary(
+                        features,
+                        captcha_required=True,
+                    ),
+                )
 
         return render_template(
             "login.html",
