@@ -57,6 +57,28 @@
             border-radius: 8px;
         }
 
+        .mitigation-card {
+            margin: -4px 0 18px;
+            padding: 14px 16px;
+            border-radius: 8px;
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            text-align: left;
+        }
+
+        .mitigation-card h2 {
+            font-size: 16px;
+            margin-bottom: 8px;
+            color: #111827;
+        }
+
+        .mitigation-card ul {
+            margin-left: 18px;
+            color: #374151;
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
         .risk-badge {
             display: inline-block;
             padding: 4px 10px;
@@ -111,6 +133,16 @@
     <p class="risk-note">Risk level during login:
         <span class="risk-badge risk-{{ risk_level|lower }}">{{ risk_level|capitalize }}</span>
     </p>
+    {% if mitigation_summary %}
+    <div class="mitigation-card">
+        <h2>Mitigations applied for this login</h2>
+        <ul>
+            {% for item in mitigation_summary %}
+            <li>{{ item }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
     {# Removed medium-risk warning_message; countdown and delivery message are used instead. #}
     {% if delivery_message %}
     <p id="delivery-message" style="font-size: 14px; color: #444; margin-top: -8px; margin-bottom: 20px;">{{ delivery_message }}</p>

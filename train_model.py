@@ -24,6 +24,8 @@ for _ in range(N):
     short_interval = random.choices([0,1], weights=[85,15])[0]
     unknown_device = random.choices([0,1], weights=[80,20])[0]
     unusual_hour = random.choices([0,1], weights=[85,15])[0]
+    ip_risk = random.choices([0,1], weights=[85,15])[0]
+    typing_speed_anomaly = random.choices([0,1], weights=[92,8])[0]
     password_match = random.choices([0,1], weights=[20,80])[0]  # 1 means correct password
 
     # Compute label using same heuristic as rule engine
@@ -33,6 +35,10 @@ for _ in range(N):
     if short_interval:
         score += 2
     if unknown_device:
+        score += 1
+    if ip_risk:
+        score += 1
+    if typing_speed_anomaly:
         score += 1
     if unusual_hour:
         score += 1
@@ -46,7 +52,7 @@ for _ in range(N):
     else:
         label = 0  # low
 
-    X.append([failed_attempts, short_interval, unknown_device, unusual_hour, password_match])
+    X.append([failed_attempts, short_interval, unknown_device, unusual_hour, password_match, ip_risk, typing_speed_anomaly])
     Y.append(label)
 
 import numpy as _np

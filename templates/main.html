@@ -76,6 +76,27 @@
             gap: 10px;
         }
 
+        .mitigation-card {
+            margin: 22px 0 28px;
+            padding: 18px 20px;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            background: #fafafa;
+            text-align: left;
+        }
+
+        .mitigation-card h2 {
+            font-size: 18px;
+            color: #111827;
+            margin-bottom: 10px;
+        }
+
+        .mitigation-card ul {
+            margin-left: 20px;
+            color: #374151;
+            line-height: 1.6;
+        }
+
         button {
             padding: 12px 30px;
             background: red;
@@ -98,6 +119,17 @@
     <h1>Welcome, {{ username }}! 👋</h1>
     <p class="risk-line">Risk level during login: <span class="risk-badge risk-{{ risk_level|lower }}">{{ risk_level|capitalize }}</span></p>
     <p>PROJECT: AI/ML-ENHANCED MULTI-FACTOR AUTHENTICATION TO MITIGATE PASSWORD GUESSING ATTACKS</p>
+
+    {% if mitigation_summary %}
+    <div class="mitigation-card">
+        <h2>Mitigations applied for this login</h2>
+        <ul>
+            {% for item in mitigation_summary %}
+            <li>{{ item }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
 
     <div class="button-container">
         <form action="/logout" method="post">

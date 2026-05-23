@@ -57,6 +57,28 @@
             font-size: 14px;
         }
 
+        .mitigation-card {
+            margin: 18px 0 22px;
+            padding: 14px 16px;
+            border-radius: 8px;
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            text-align: left;
+        }
+
+        .mitigation-card h2 {
+            font-size: 16px;
+            margin-bottom: 8px;
+            color: #111827;
+        }
+
+        .mitigation-card ul {
+            margin-left: 18px;
+            color: #374151;
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
         .countdown {
             display: inline-block;
             min-width: 2ch;
@@ -88,6 +110,17 @@
     <p class="meta">The system rejected the OTP challenge for this login attempt.</p>
     {% else %}
     <div class="reason">{{ reason }}</div>
+    {% endif %}
+
+    {% if mitigation_summary %}
+    <div class="mitigation-card">
+        <h2>Mitigations triggered</h2>
+        <ul>
+            {% for item in mitigation_summary %}
+            <li>{{ item }}</li>
+            {% endfor %}
+        </ul>
+    </div>
     {% endif %}
 
     <a href="/">Return to Login</a>

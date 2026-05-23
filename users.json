@@ -1,8 +1,25 @@
 {
   "felix": {
-    "password": "felix123",
+    "password": "f3ed84ddd6da4a61$db68ef3819e526ab8674fb4a0389963b401134a3382aa62a320f0e03277aff16",
     "email": "felixnoell123@gmail.com",
     "known_device": "laptop1",
+    "known_ips": [
+      "127.0.0.1"
+    ],
+    "typing_times": [
+      280,
+      310,
+      295,
+      4813.0,
+      7605.0,
+      4979.0,
+      5050.0,
+      15504.0,
+      4781.0,
+      6739.0,
+      17166.0,
+      4221.0
+    ],
     "login_hours": [
       1,
       2,
@@ -15,29 +32,40 @@
       3,
       3,
       3,
-      3
+      3,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      20,
+      21,
+      21,
+      21
     ]
   },
   "kelland": {
-    "password": "kelland123",
+    "password": "b7f2de189ddf42c6$ef85a5c6d27259f84e1b00b18a4a648b9246812da6a1e1de294df781b74044e4",
     "email": "kelland@example.com",
     "known_device": "laptop2",
     "login_hours": []
   },
   "erra": {
-    "password": "erra123",
+    "password": "6e873bf675b5fbda$1ba51fa2f8bf339f10c3a7e3eae3b25780b09f49812c8f433940e9ab3f1c8365",
     "email": "erra@example.com",
     "known_device": "laptop3",
     "login_hours": []
   },
   "joanne": {
-    "password": "joanne123",
+    "password": "e539f8b6bda50c7d$9036acf22a5c3d9bcc07974f1ffd5e3e718992e055cbabbec957d97f61790058",
     "email": "joanne@example.com",
     "known_device": "laptop4",
     "login_hours": []
   },
   "awang": {
-    "password": "awang123",
+    "password": "16967b789815897c$2ec58a895cd300ffce3e73806c5b0624414dce2f86be33d7fec7bf4ac6a7a5dd",
     "email": "awang@example.com",
     "known_device": "laptop5",
     "login_hours": []

@@ -7,6 +7,8 @@ import smtplib
 import ssl
 from email.mime.text import MIMEText
 from datetime import datetime
+import hashlib
+import statistics
 import csv
 import traceback
 
@@ -119,11 +121,17 @@ def get_login_state(username):
     return login_tracker[username]
 
 
-def extract_features(username, user_record, password_match, device_id):
-    """Extract simple login risk features."""
+def extract_features(username, user_record, password_match, device_id, override_unusual_hour=None):
+    """Extract simple login risk features.
+
+    Now accepts device/ip/typing context provided by the caller via optional
+    keyword args supplied on the call sites.
+    """
+    # Backwards-compatible entry: callers may pass additional kwargs in request
+    # handling (ip_address, typing_time_ms). We expect callers to pass those.
     state = get_login_state(username)
     current_time = time.time()
-    last_attempt_time = state["last_attempt_time"]
+    last_attempt_time = state.get("last_attempt_time")
     short_interval = last_attempt_time is not None and (current_time - last_attempt_time) < 5
     # Determine whether this login attempt occurs at an unusual hour for this user.
     # We keep a simple historic per-user hour histogram (`login_hours`) and
@@ -148,7 +156,40 @@ def extract_features(username, user_record, password_match, device_id):
         # Not enough history to judge; treat as not unusual to avoid false positives
         unusual_hour = False
 
+    # Demo-only override for presentation/testing.
+    if override_unusual_hour is not None:
+        unusual_hour = bool(override_unusual_hour)
+
     unknown_device = device_id.strip() != user_record.get("known_device", "") if user_record else True
+
+    # IP risk: flag when the IP is not in the user's known_ips list
+    ip_address = None
+    typing_time_ms = None
+    try:
+        # Expect caller to have set these temporarily on the state dict or passed via globals
+        ip_address = state.get('_ip_address')
+        typing_time_ms = state.get('_typing_time_ms')
+    except Exception:
+        ip_address = None
+
+    known_ips = user_record.get('known_ips', []) if user_record else []
+    ip_risk = False
+    if ip_address:
+        ip_risk = ip_address not in known_ips
+
+    # Typing speed anomaly: compare submitted typing_time_ms to historical median
+    typing_speed_anomaly = False
+    try:
+        typing_hist = user_record.get('typing_times', []) if user_record else []
+        if typing_time_ms is not None and typing_hist:
+            med = statistics.median(typing_hist)
+            # anomalous if >2x slower or <0.5x faster than median
+            if med > 0 and (typing_time_ms > 2 * med or typing_time_ms < 0.5 * med):
+                typing_speed_anomaly = True
+        else:
+            typing_speed_anomaly = False
+    except Exception:
+        typing_speed_anomaly = False
 
     return {
         "failed_attempts": state["failed_attempts"],
@@ -156,6 +197,8 @@ def extract_features(username, user_record, password_match, device_id):
         "unknown_device": unknown_device,
         "unusual_hour": unusual_hour,
         "password_match": password_match,
+        "ip_risk": ip_risk,
+        "typing_speed_anomaly": typing_speed_anomaly,
     }
 
 
@@ -169,6 +212,10 @@ def simple_risk_engine(features):
         score += 2
     if features["unknown_device"]:
         score += 1
+    if features.get('ip_risk'):
+        score += 1
+    if features.get('typing_speed_anomaly'):
+        score += 1
     if features["unusual_hour"]:
         score += 1
     if not features["password_match"]:
@@ -179,6 +226,40 @@ def simple_risk_engine(features):
     if score >= 3:
         return "medium", score
     return "low", score
+
+
+def build_mitigation_summary(features=None, risk_level=None, captcha_required=False, blocked=False):
+    """Return human-readable mitigation items for the current login attempt."""
+    items = []
+    features = features or {}
+
+    items.append("Password + OTP multi-factor authentication")
+
+    if captcha_required:
+        items.append("CAPTCHA after 2 failed attempts")
+
+    if features.get('ip_risk'):
+        items.append("IP address tracking and unknown-IP flagging")
+
+    if features.get('typing_speed_anomaly'):
+        items.append("Behavioral biometrics via typing-speed anomaly detection")
+
+    if features.get('unknown_device'):
+        items.append("Unknown device detection")
+
+    if features.get('short_interval'):
+        items.append("Short-interval retry detection")
+
+    if features.get('unusual_hour'):
+        items.append("Unusual-hour login detection")
+
+    if risk_level == 'medium':
+        items.append("3-second delay before OTP delivery")
+
+    if risk_level == 'high' or blocked:
+        items.append("60-second temporary account block")
+
+    return items
 
 
 class ModelManager:
@@ -223,6 +304,8 @@ class ModelManager:
                 1 if features.get('unknown_device') else 0,
                 1 if features.get('unusual_hour') else 0,
                 1 if features.get('password_match') else 0,
+                1 if features.get('ip_risk') else 0,
+                1 if features.get('typing_speed_anomaly') else 0,
             ]])
             # auto-reload if file changed
             try:
@@ -257,7 +340,7 @@ def log_feature_vector(features, label):
     """
     try:
         import csv
-        header = ['failed_attempts','short_interval','unknown_device','unusual_hour','password_match','label']
+        header = ['failed_attempts','short_interval','unknown_device','unusual_hour','password_match','ip_risk','typing_speed_anomaly','label']
         file_path = Path('training_data.csv')
         write_header = not file_path.exists()
         with open(file_path, 'a', newline='') as f:
@@ -270,6 +353,8 @@ def log_feature_vector(features, label):
                 1 if features.get('unknown_device') else 0,
                 1 if features.get('unusual_hour') else 0,
                 1 if features.get('password_match') else 0,
+                1 if features.get('ip_risk') else 0,
+                1 if features.get('typing_speed_anomaly') else 0,
                 label,
             ])
     except Exception:
@@ -366,6 +451,15 @@ def home():
         username = request.form.get("username", "")
         password = request.form.get("password", "")
         device_id = request.form.get("device_id", "")
+        demo_unusual_hour = request.form.get("demo_unusual_hour") == "on"
+        # Capture typing time (ms) sent by client-side JS; optional
+        typing_time_raw = request.form.get('typing_time_ms')
+        try:
+            typing_time_ms = float(typing_time_raw) if typing_time_raw is not None and typing_time_raw != '' else None
+        except Exception:
+            typing_time_ms = None
+        # Capture client IP (best-effort)
+        ip_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
         
         users = load_users()
 
@@ -382,11 +476,42 @@ def home():
                     reason=f"Access temporarily blocked. Try again in {remaining_seconds} seconds.",
                 )
         
+        # If user has accumulated failures, require CAPTCHA input
+        if username in users:
+            state_tmp = get_login_state(username)
+            if state_tmp.get('failed_attempts', 0) >= 2:
+                # Ensure captcha answer exists and matches
+                submitted = request.form.get('captcha', '').strip()
+                expected = session.get('captcha_answer')
+                if expected is None or submitted == '':
+                    # generate a simple math captcha and prompt user
+                    a = random.randint(2, 9)
+                    b = random.randint(2, 9)
+                    session['captcha_question'] = f"What is {a} + {b}?"
+                    session['captcha_answer'] = str(a + b)
+                    return render_template('login.html', error_message='Please answer the CAPTCHA to continue.', show_captcha=True, captcha_question=session.get('captcha_question'))
+                if submitted != str(expected):
+                    return render_template('login.html', error_message='CAPTCHA incorrect. Try again.', show_captcha=True, captcha_question=session.get('captcha_question'))
+
         # Validate credentials against database
-        if username in users and password == users[username]["password"]:
+        stored_pw = users.get(username, {}).get('password')
+        # Support legacy plaintext and migrated hashed values
+        def verify_pw(plain, stored):
+            if stored is None:
+                return False
+            if '$' in stored:
+                salt, hexhash = stored.split('$',1)
+                h = hashlib.sha256((salt + plain).encode('utf-8')).hexdigest()
+                return h == hexhash
+            return plain == stored
+
+        if username in users and verify_pw(password, stored_pw):
             state = get_login_state(username)
             state["last_attempt_time"] = time.time()
-            features = extract_features(username, users[username], True, device_id)
+            # attach transient context for IP and typing data
+            state['_ip_address'] = ip_addr
+            state['_typing_time_ms'] = typing_time_ms
+            features = extract_features(username, users[username], True, device_id, override_unusual_hour=demo_unusual_hour)
             # Try ML model first; fall back to rule-based engine when model unavailable or low-confidence
             ml_label, ml_conf = predict_risk_ml(features)
             if ml_label and ml_conf >= 0.60:
@@ -422,6 +547,11 @@ def home():
 
             session["risk_level"] = risk_level
             session["risk_score"] = risk_score
+            session["mitigation_summary"] = build_mitigation_summary(
+                features,
+                risk_level=risk_level,
+                blocked=(risk_level == 'high'),
+            )
 
             if risk_level == "high":
                 state["blocked_until"] = time.time() + 60
@@ -431,15 +561,35 @@ def home():
                     denial_type="blocked",
                     remaining_seconds=60,
                     reason="High-risk login detected. Access temporarily blocked for 60 seconds.",
+                    mitigation_summary=session.get("mitigation_summary", []),
                 )
 
             if risk_level == "medium":
                 # For medium risk, require a short client-visible delay before OTP verification.
                 # Store the delay end timestamp in session so the OTP page can show a countdown.
-                session["delay_until"] = time.time() + 10
+                session["delay_until"] = time.time() + 3
 
             state["failed_attempts"] = 0
             state["blocked_until"] = 0
+
+            # Update user's known IPs and typing history
+            try:
+                u = users.get(username, {})
+                if 'known_ips' not in u or not isinstance(u.get('known_ips'), list):
+                    u['known_ips'] = []
+                if ip_addr and ip_addr not in u['known_ips']:
+                    u['known_ips'].append(ip_addr)
+                if 'typing_times' not in u or not isinstance(u.get('typing_times'), list):
+                    u['typing_times'] = []
+                if typing_time_ms is not None:
+                    u['typing_times'].append(float(typing_time_ms))
+                    # limit history
+                    if len(u['typing_times']) > 200:
+                        u['typing_times'] = u['typing_times'][-200:]
+                users[username] = u
+                save_users(users)
+            except Exception:
+                pass
 
             otp_code = generate_otp()
             otp_store = load_otp_store()
@@ -470,7 +620,27 @@ def home():
             state = get_login_state(username)
             state["failed_attempts"] += 1
             state["last_attempt_time"] = time.time()
-            features = extract_features(username, users[username], False, device_id)
+            # attach IP and typing to state for feature extraction
+            state['_ip_address'] = ip_addr
+            state['_typing_time_ms'] = typing_time_ms
+
+            # After two failed attempts, force a CAPTCHA before doing anything else.
+            if state["failed_attempts"] >= 2:
+                a = random.randint(2, 9)
+                b = random.randint(2, 9)
+                session['captcha_question'] = f"What is {a} + {b}?"
+                session['captcha_answer'] = str(a + b)
+                return render_template(
+                    'login.html',
+                    error_message='Please solve the CAPTCHA to continue.',
+                    show_captcha=True,
+                    captcha_question=session.get('captcha_question'),
+                    mitigation_summary=build_mitigation_summary(
+                        captcha_required=True,
+                    ),
+                )
+
+            features = extract_features(username, users[username], False, device_id, override_unusual_hour=demo_unusual_hour)
             # Try ML model for failed attempts as well
             ml_label, ml_conf = predict_risk_ml(features)
             if ml_label and ml_conf >= 0.60:
@@ -502,16 +672,6 @@ def home():
                 })
             except Exception:
                 pass
-
-            if risk_level == "high":
-                state["blocked_until"] = time.time() + 60
-                return render_template(
-                    "access_denied.html",
-                    username=username,
-                    denial_type="blocked",
-                    remaining_seconds=60,
-                    reason="High-risk login detected. Access temporarily blocked for 60 seconds.",
-                )
 
         return render_template(
             "login.html",
@@ -551,6 +711,7 @@ def otp_verification():
                 "main.html",
                 username=username,
                 risk_level=session.get("risk_level", "unknown"),
+                mitigation_summary=session.get("mitigation_summary", []),
             )
 
         return render_template(
@@ -587,6 +748,7 @@ def otp_verification():
         warning_message=session.get("otp_warning_message", ""),
         delivery_message=session.get("otp_delivery_message", ""),
         delay_until=session.get("delay_until", 0),
+        mitigation_summary=session.get("mitigation_summary", []),
         error_message=None,
     )
 
@@ -689,6 +851,8 @@ def format_features(f):
         'unknown_device': bool(f.get('unknown_device', False)),
         'unusual_hour': bool(f.get('unusual_hour', False)),
         'password_match': bool(f.get('password_match', False)),
+        'ip_risk': bool(f.get('ip_risk', False)),
+        'typing_speed_anomaly': bool(f.get('typing_speed_anomaly', False)),
     }
 
 

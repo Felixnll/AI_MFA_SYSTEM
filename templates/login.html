@@ -60,6 +60,28 @@
             cursor: pointer;
         }
 
+        .mitigation-overview {
+            margin-top: 18px;
+            padding: 14px 16px;
+            border-radius: 8px;
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
+            text-align: left;
+            font-size: 14px;
+            color: #374151;
+        }
+
+        .mitigation-overview h2 {
+            font-size: 15px;
+            margin-bottom: 8px;
+            color: #111827;
+        }
+
+        .mitigation-overview ul {
+            margin-left: 18px;
+            line-height: 1.5;
+        }
+
     </style>
 </head>
 <body>
@@ -72,30 +94,71 @@
 
     <input type="password" id="password" name="password" placeholder="Password" required>
 
+    <!-- hidden field to send typing duration (ms) -->
+    <input type="hidden" id="typing_time_ms" name="typing_time_ms" value="">
+
     <input type="text" name="device_id" placeholder="Device ID (e.g. laptop1)" required>
+
+    <label style="display: flex; align-items: center; gap: 5px; margin-top: 5px;">
+        <input type="checkbox" name="demo_unusual_hour" id="demoUnusualHour">
+        <span style="font-size: 14px; color: #666;">Simulate unusual hour (demo)</span>
+    </label>
     
     <label style="display: flex; align-items: center; gap: 5px; margin-top: 5px;">
         <input type="checkbox" id="showPassword" onchange="togglePassword()">
         <span style="font-size: 14px; color: #666;">Show password</span>
     </label>
 
+    {% if show_captcha %}
+    <div style="margin-top:12px">
+        <label><strong>CAPTCHA:</strong> {{ captcha_question }}</label>
+        <input type="text" name="captcha" placeholder="Answer the CAPTCHA" required>
+    </div>
+    {% endif %}
+
 
 
         <button type="submit">Login</button>
     
     <script>
+        // Password visibility
         function togglePassword() {
             const passwordInput = document.getElementById("password");
             const showPasswordCheckbox = document.getElementById("showPassword");
-            
             if (showPasswordCheckbox.checked) {
                 passwordInput.type = "text";
             } else {
                 passwordInput.type = "password";
             }
         }
+
+        // Typing time capture: measure time between first focus on password and submit
+        (function(){
+            let pwd = document.getElementById('password');
+            let start = null;
+            pwd.addEventListener('focus', function(){ if (!start) start = Date.now(); });
+            // on submit, write elapsed to hidden field
+            document.querySelector('form').addEventListener('submit', function(){
+                if (start) {
+                    const elapsed = Date.now() - start;
+                    document.getElementById('typing_time_ms').value = String(elapsed);
+                }
+            });
+        })();
     </script>
     </form>
+
+    <div class="mitigation-overview">
+        <h2>Protection flow in this project</h2>
+        <ul>
+            <li>Password + OTP multi-factor authentication</li>
+            <li>AI/ML risk detection with a Random Forest model</li>
+            <li>CAPTCHA after 2 failed attempts</li>
+            <li>3-second delay for medium-risk logins</li>
+            <li>60-second block for high-risk logins</li>
+            <li>IP address tracking and typing-speed behavioral checks</li>
+        </ul>
+    </div>
 </div>
 
 {% if error_message %}

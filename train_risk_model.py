@@ -46,12 +46,16 @@ def generate_synthetic_example():
     short_interval = int(np.random.rand() < 0.15 if fa > 0 else np.random.rand() < 0.05)
     unknown_device = int(np.random.rand() < 0.2)
     unusual_hour = int(np.random.rand() < 0.1)
+    ip_risk = int(np.random.rand() < 0.15)
+    typing_speed_anomaly = int(np.random.rand() < 0.08)
     password_match = int(np.random.rand() < 0.85)
     return {
         'failed_attempts': fa,
         'short_interval': int(short_interval),
         'unknown_device': int(unknown_device),
         'unusual_hour': int(unusual_hour),
+        'ip_risk': int(ip_risk),
+        'typing_speed_anomaly': int(typing_speed_anomaly),
         'password_match': int(password_match),
     }
 
@@ -71,7 +75,7 @@ if __name__ == '__main__':
 
     print('Generating synthetic dataset...')
     df = synth_dataset(4000)
-    X = df[['failed_attempts','short_interval','unknown_device','unusual_hour','password_match']].values
+    X = df[['failed_attempts','short_interval','unknown_device','unusual_hour','password_match','ip_risk','typing_speed_anomaly']].values
     y = df['label'].values
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
