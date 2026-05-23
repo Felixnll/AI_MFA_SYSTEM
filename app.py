@@ -198,6 +198,8 @@ def ml_risk_engine(features):
         risk_level = model.predict(input_row)[0]
 
         probabilities = model.predict_proba(input_row)[0]
+        print("[ML CLASS PROBABILITIES]", dict(zip(model.classes_, probabilities)))
+
         confidence = round(max(probabilities) * 100, 2)
 
         return risk_level, confidence
