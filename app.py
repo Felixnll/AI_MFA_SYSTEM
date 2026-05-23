@@ -363,6 +363,28 @@ def log_feature_vector(features, label):
 
 # File to persist ML prediction events (JSON lines)
 PREDICTION_LOG = Path('ml_predictions.jsonl')
+PREDICTION_FEATURE_KEYS = (
+    'failed_attempts',
+    'short_interval',
+    'unknown_device',
+    'unusual_hour',
+    'password_match',
+    'ip_risk',
+    'typing_speed_anomaly',
+)
+
+
+def normalize_prediction_features(features):
+    features = features or {}
+    return {
+        'failed_attempts': int(features.get('failed_attempts', 0)),
+        'short_interval': bool(features.get('short_interval', False)),
+        'unknown_device': bool(features.get('unknown_device', False)),
+        'unusual_hour': bool(features.get('unusual_hour', False)),
+        'password_match': bool(features.get('password_match', False)),
+        'ip_risk': bool(features.get('ip_risk', False)),
+        'typing_speed_anomaly': bool(features.get('typing_speed_anomaly', False)),
+    }
 
 
 def write_ml_prediction(record: dict):
@@ -371,8 +393,13 @@ def write_ml_prediction(record: dict):
     Record is expected to be JSON-serializable.
     """
     try:
+        payload = dict(record or {})
+        payload['timestamp'] = payload.get('timestamp') or datetime.utcnow().isoformat() + 'Z'
+        payload['real_time'] = datetime.now().astimezone().isoformat()
+        payload['features'] = normalize_prediction_features(payload.get('features', {}))
+        payload['feature_keys'] = list(PREDICTION_FEATURE_KEYS)
         with open(PREDICTION_LOG, 'a', encoding='utf-8') as f:
-            f.write(json.dumps(record, default=str) + '\n')
+            f.write(json.dumps(payload, default=str) + '\n')
     except Exception:
         # keep logging best-effort; avoid raising in request path
         print("Failed to write prediction log:\n", traceback.format_exc())

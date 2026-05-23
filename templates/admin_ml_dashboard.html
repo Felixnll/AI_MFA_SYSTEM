@@ -12,6 +12,9 @@
     th{background:#f7f7f7}
     tr:nth-child(even){background:#fcfcfc}
     .mono{font-family:Consolas,monospace;font-size:12px;color:#333}
+    .feature-list{margin:0;padding-left:18px;line-height:1.5}
+    .feature-list li{margin:0}
+    .small{font-size:12px;color:#666}
   </style>
 </head>
 <body>
@@ -21,6 +24,7 @@
     <thead>
       <tr>
         <th>Time (UTC)</th>
+        <th>Real Time</th>
         <th>Source</th>
         <th>User</th>
         <th>Rule</th>
@@ -32,17 +36,25 @@
       {% for p in predictions %}
       <tr>
         <td>{{ p.timestamp }}</td>
+        <td class="small">{{ p.real_time or '-' }}</td>
         <td>{{ p.source }}</td>
         <td>{{ p.username or '-' }}</td>
         <td>{{ p.rule_label }} ({{ p.rule_score }})</td>
         <td>{% if p.ml_label %}{{ p.ml_label }} ({{ '%.2f'|format(p.ml_confidence or 0) }}){% else %}-{% endif %}</td>
         <td class="mono">
-          failed: {{ p.features.failed_attempts }} | pw_match: {{ p.features.password_match }} |<br>
-          short_int: {{ p.features.short_interval }} | unknown_dev: {{ p.features.unknown_device }} | unusual_hr: {{ p.features.unusual_hour }}
+          <ul class="feature-list">
+            <li>failed_attempts: {{ p.features.failed_attempts }}</li>
+            <li>short_interval: {{ p.features.short_interval }}</li>
+            <li>unknown_device: {{ p.features.unknown_device }}</li>
+            <li>unusual_hour: {{ p.features.unusual_hour }}</li>
+            <li>password_match: {{ p.features.password_match }}</li>
+            <li>ip_risk: {{ p.features.ip_risk }}</li>
+            <li>typing_speed_anomaly: {{ p.features.typing_speed_anomaly }}</li>
+          </ul>
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="6">No predictions logged yet.</td></tr>
+      <tr><td colspan="7">No predictions logged yet.</td></tr>
       {% endfor %}
     </tbody>
   </table>
